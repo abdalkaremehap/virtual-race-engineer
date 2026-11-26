@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ page_title }}</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+  <header class="topnav">
+    <div class="topnav-inner">
+      <a href="/" class="brand">
+        <span class="brand-badge">F1 PIT WALL</span>
+        <span>Virtual Race Engineer</span>
+      </a>
+      <nav class="nav-links" aria-label="Main Navigation">
+        <a href="/" class="nav-link {% if active_nav == 'home' %}active{% endif %}">🏁 Season Hub</a>
+        <a href="/race/2024/Bahrain" class="nav-link {% if active_nav == 'race' %}active{% endif %}">📡 Live Pit Wall</a>
+        <a href="/sandbox" class="nav-link {% if active_nav == 'sandbox' %}active{% endif %}">🧪 Scenario Lab</a>
+        <a href="/standings" class="nav-link {% if active_nav == 'standings' %}active{% endif %}">🏆 Standings</a>
+        <a href="/rules" class="nav-link {% if active_nav == 'rules' %}active{% endif %}">⚖️ FIA Rules</a>
+      </nav>
+      <div class="nav-status">
+        <span class="status-dot"></span>
+        <span>L1 {{ health.l1_tensor_kb }}KB · 10k MC · {{ health.circuits_count }} Tracks</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-wrap">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/radio_client.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

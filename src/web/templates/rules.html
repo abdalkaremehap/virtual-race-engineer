@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="hero-banner" style="border-left-color:#a78bfa;">
+    <div style="flex:1;min-width:260px;">
+      <span class="pill pill-purple" style="margin-bottom:6px;">⚖️ 2-HOP FIA CROSS-REFERENCE ENGINE</span>
+      <h1 class="hero-title">FIA 2024 Sporting Regulations Explorer</h1>
+      <p class="hero-sub">
+        Ask any Formula 1 regulation question in plain English. Hop-1 searches the official FIA PDF via vector embeddings, and Hop-2 automatically resolves cross-referenced FIA Articles (like Article 54.3 Penalties).
+      </p>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-bottom:16px;">
+    <form id="rulesForm" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <input id="rulesInput" type="text" value="{{ initial_query }}" placeholder="Ask e.g. 'can i overtake under the sc?' or 'am I allowed to cross the white line at pit exit?'" style="flex:1;min-width:240px;" />
+      <button id="rulesBtn" class="btn btn-primary" type="submit">🔎 Search FIA Rulebook</button>
+    </form>
+
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+      <button class="btn btn-sm rule-chip" data-q="can i overtake under the sc ?">🚨 Overtake under SC</button>
+      <button class="btn btn-sm rule-chip" data-q="what is the penalty if I overtake under the safety car?">⚖️ SC Overtaking Penalty</button>
+      <button class="btn btn-sm rule-chip" data-q="can I pass under yellow flag?">🟡 Yellow Flag Rules</button>
+      <button class="btn btn-sm rule-chip" data-q="am I allowed to cross the white line at pit exit?">🚧 Pit Exit White Line</button>
+      <button class="btn btn-sm rule-chip" data-q="what is the track limits penalty rule?">📏 Track Limits</button>
+      <button class="btn btn-sm rule-chip" data-q="unsafe release in the pit lane penalty">🔧 Unsafe Release</button>
+    </div>
+  </section>
+
+  <div id="rulesResult" style="display:none;flex-direction:column;gap:14px;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const formEl = document.getElementById("rulesForm");
+  const inputEl = document.getElementById("rulesInput");
+  const btnEl = document.getElementById("rulesBtn");
+  const resEl = document.getElementById("rulesResult");
+
+  function esc(s) {
+    return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  async function searchRules(q) {
+    const query = String(q || "").trim();
+    if (!query) return;
+    inputEl.value = query;
+    btnEl.disabled = true;
+    btnEl.textContent = "⏳ Searching FIA PDF...";
+    resEl.style.display = "flex";
+    resEl.innerHTML = `<div class="panel" style="color:#94a3b8;">Searching 2024 FIA Sporting Regulations (Hop-1 Semantic + Hop-2 Article Cross-Reference)...</div>`;
+
+    try {
+      const resp = await fetch("/api/rules/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: query, top_k: 3 }),
+      });
+      const data = await resp.json();
+
+      if (data.offline) {
+        resEl.innerHTML = `<div class="panel" style="border-left:3px solid #ffb300;">⚠️ <b>FIA Vector Database Offline:</b> ${esc(data.error)}</div>`;
+        return;
+      }
+
+      const h1Cards = (data.hop1_primary_rules || [])
+        .map(
+          (h, idx) => `
+          <div class="panel" style="border-left:3px solid #38bdf8;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span class="pill pill-cyan">📘 HOP 1 · PRIMARY RULE #${idx + 1}</span>
+              <span style="font-size:11px;font-family:monospace;color:#94a3b8;">Page ${esc(h.page)} · ${esc(h.score)}% match</span>
+            </div>
+            <div style="font-size:12.5px;color:#e2e8f0;line-height:1.55;">${esc(h.text)}</div>
+          </div>`
+        )
+        .join("");
+
+      const h2Cards = (data.hop2_resolved_references || [])
+        .map(
+          (h2) => `
+          <div class="panel" style="border-left:3px solid #a78bfa;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span class="pill pill-purple">🔗 HOP 2 · AUTO-RESOLVED ARTICLE ${esc(h2.article)}</span>
+              <span style="font-size:11px;font-family:monospace;color:#94a3b8;">Page ${esc(h2.page)}</span>
+            </div>
+            <div style="font-size:12.5px;color:#ddd6fe;line-height:1.55;">${esc(h2.text)}</div>
+          </div>`
+        )
+        .join("");
+
+      resEl.innerHTML = `
+        <div class="panel" style="border-left:4px solid #00e676;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <span class="pill pill-real">🎧 PIT WALL ENGINEER SUMMARY</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:11px;font-family:monospace;color:#94a3b8;">${esc(data.elapsed_ms)}ms ${data.cache_hit ? "· CACHED" : ""}</span>
+              <button id="btnSpeakRule" class="btn btn-sm btn-cyan" type="button">🔊 Speak</button>
+              <button id="btnStopRule" class="btn btn-sm" type="button">⏹ Stop</button>
+            </div>
+          </div>
+          <div style="font-size:14.5px;color:#f8fafc;line-height:1.55;font-weight:600;">“${esc(data.human_summary)}”</div>
+        </div>
+        ${h1Cards}
+        ${h2Cards}
+      `;
+
+      document.getElementById("btnSpeakRule").addEventListener("click", () => {
+        window.F1Voice && window.F1Voice.speak(data.spoken_text || data.human_summary, null, "FIA");
+      });
+      document.getElementById("btnStopRule").addEventListener("click", () => {
+        window.F1Voice && window.F1Voice.stop(null);
+      });
+    } finally {
+      btnEl.disabled = false;
+      btnEl.textContent = "🔎 Search FIA Rulebook";
+    }
+  }
+
+  formEl.addEventListener("submit", (e) => {
+    e.preventDefault();
+    searchRules(inputEl.value);
+  });
+  document.querySelectorAll(".rule-chip").forEach((b) => {
+    b.addEventListener("click", () => searchRules(b.dataset.q));
+  });
+  if (inputEl.value.trim()) searchRules(inputEl.value);
+</script>
+{% endblock %}

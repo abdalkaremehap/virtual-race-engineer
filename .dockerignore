@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ruff_cache/
+
+# Environment Variables
+.env
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Project specific caches (exclude large FastF1 disk cache & WAL lock files, keep 7MB pre-warmed f1_historical.duckdb)
+.fastf1/
+data/fastf1_cache/
+data/qdrant_local/
+*.duckdb.wal
+*.duckdb.tmp

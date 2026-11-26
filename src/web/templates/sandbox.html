@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block content %}
+  <section style="margin-bottom:14px;">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+      <div class="section-title" style="margin-bottom:0;"><span class="accent-bar"></span> What-If F1 Strategy Scenario Lab</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        {% for p in presets %}
+          <a href="/sandbox?preset={{ p.id }}" class="btn btn-sm {% if p.id == active_preset.id %}btn-primary{% endif %}">
+            {{ p.season }} {{ p.circuit }} L{{ p.lap }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="cockpit-controls">
+      <div class="ctrl-group">
+        <label>Circuit</label>
+        <select id="sbCircuit">
+          {% for item in calendar %}
+            <option value="{{ item.circuit }}" {% if item.circuit == active_preset.circuit %}selected{% endif %}>{{ item.circuit }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label>Lap</label>
+        <input id="sbLap" type="number" min="1" max="78" value="{{ active_preset.lap }}" style="width:70px;" />
+      </div>
+      <div class="ctrl-group">
+        <label>Total Laps</label>
+        <input id="sbTotalLaps" type="number" min="10" max="78" value="{{ active_preset.total_laps }}" style="width:76px;" />
+      </div>
+      <div class="ctrl-group">
+        <label>Ego Driver</label>
+        <select id="sbEgo">
+          {% for d in all_drivers %}
+            <option value="{{ d }}" {% if d == active_preset.ego_driver %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label>Track Flag</label>
+        <select id="sbStatus">
+          <option value="GREEN" {% if active_preset.track_status == 'GREEN' %}selected{% endif %}>🟢 GREEN</option>
+          <option value="VSC" {% if active_preset.track_status == 'VSC' %}selected{% endif %}>🟡 VSC</option>
+          <option value="SC" {% if active_preset.track_status == 'SC' %}selected{% endif %}>🚨 SC</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label>Track °C</label>
+        <input id="sbTemp" type="number" step="0.5" min="15" max="60" value="{{ active_preset.track_temp }}" style="width:76px;" />
+      </div>
+      <div class="ctrl-group">
+        <label>Weather</label>
+        <select id="sbWeather">
+          {% for w in weather_options %}
+            <option value="{{ w }}" {% if w == active_preset.weather %}selected{% endif %}>{{ w }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label>Target Tyre</label>
+        <select id="sbTargetTyre">
+          {% for c in ["SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET"] %}
+            <option value="{{ c }}" {% if c == active_preset.target_tyre %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button id="btnRunSandbox" class="btn btn-primary" type="button" style="margin-left:auto;">⚡ Run 10k MC &amp; Update Radar</button>
+    </div>
+  </section>
+
+  <div class="cockpit-grid">
+    <div>
+      <iframe id="sbCanvasFrame" class="canvas-iframe" title="Sandbox 60 FPS Radar"></iframe>
+    </div>
+
+    <aside class="radio-console">
+      <div class="radio-hdr">
+        <div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="pulse-dot"></span>
+            <span style="font-size:10.5px;font-weight:900;letter-spacing:1.1px;color:#ff5252;">SANDBOX PIT WALL RADIO</span>
+          </div>
+          <div id="sbRadioTitle" style="font-size:14px;font-weight:800;margin-top:2px;">📻 {{ active_preset.ego_driver }} · {{ active_preset.circuit }}</div>
+        </div>
+        <span id="sbLapPill" class="pill pill-cyan">L{{ active_preset.lap }}/{{ active_preset.total_laps }} · {{ active_preset.track_status }}</span>
+      </div>
+
+      <div class="quick-grid">
+        <button id="sbQcPreset" class="btn btn-sm btn-cyan" type="button">🎯 Ask Scenario Call</button>
+        <button id="sbQcCatch" class="btn btn-sm" type="button">⚔️ Catch Rival?</button>
+      </div>
+
+      <div id="sbRadioFeed" class="radio-feed"></div>
+
+      <div class="voice-bar">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button id="sbPlayVoice" class="btn btn-sm btn-cyan" type="button">🔊 PLAY</button>
+          <button id="sbStopVoice" class="btn btn-sm" type="button">⏹ STOP</button>
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#cbd5e1;cursor:pointer;">
+            <input id="sbVoiceAuto" type="checkbox" checked /> Auto-Read
+          </label>
+        </div>
+        <span id="sbVoiceStatus" style="font-size:10px;color:#94a3b8;font-family:monospace;">VOICE READY</span>
+      </div>
+
+      <form id="sbRadioForm" class="ptt-form">
+        <input id="sbRadioInput" type="text" value="{{ active_preset.suggested_question }}" placeholder="Test any Pit Wall radio question..." autocomplete="off" />
+        <button id="sbSendBtn" class="btn btn-primary" type="submit">🎙️ SEND</button>
+        <button id="sbClearBtn" class="btn btn-sm" type="button">🗑️</button>
+      </form>
+    </aside>
+  </div>
+
+  <!-- Editable Grid Table -->
+  <section class="panel" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div class="section-title" style="margin-bottom:0;"><span class="accent-bar"></span> Custom Grid Editor (Edit Tyre Ages, Compounds &amp; Gaps)</div>
+      <span id="sbRejoinSummary" class="pill pill-real">Loading simulation...</span>
+    </div>
+    <div class="f1-table-wrap">
+      <table class="f1-table">
+        <thead>
+          <tr><th>Pos</th><th>Driver</th><th>Compound</th><th>Tyre Age (Laps)</th><th>Gap to Leader (s)</th><th>Last Lap (s)</th></tr>
+        </thead>
+        <tbody id="sbGridBody"></tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PRESETS = {{ presets_json | safe }};
+  const ACTIVE_ID = {{ active_preset.id | tojson }};
+  const presetObj = PRESETS.find((p) => p.id === ACTIVE_ID) || PRESETS[0];
+  let gridRows = JSON.parse(JSON.stringify(presetObj.rows));
+
+  function renderGridTable() {
+    const tbody = document.getElementById("sbGridBody");
+    const comps = ["SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET"];
+    tbody.innerHTML = gridRows
+      .map(
+        (r, i) => `
+      <tr>
+        <td style="font-family:monospace;font-weight:800;">P${r.position}</td>
+        <td><input data-i="${i}" data-k="driver" value="${r.driver}" style="width:74px;font-weight:800;" /></td>
+        <td>
+          <select data-i="${i}" data-k="compound">
+            ${comps.map((c) => `<option value="${c}" ${c === r.compound ? "selected" : ""}>${c}</option>`).join("")}
+          </select>
+        </td>
+        <td><input type="number" min="0" max="65" data-i="${i}" data-k="tyre_life" value="${r.tyre_life}" style="width:76px;" /></td>
+        <td><input type="number" step="0.1" min="0" data-i="${i}" data-k="gap_to_leader" value="${r.gap_to_leader}" style="width:86px;" /></td>
+        <td><input type="number" step="0.1" min="60" data-i="${i}" data-k="lap_time_sec" value="${r.lap_time_sec}" style="width:86px;" /></td>
+      </tr>`
+      )
+      .join("");
+
+    tbody.querySelectorAll("input, select").forEach((el) => {
+      el.addEventListener("change", () => {
+        const idx = Number(el.dataset.i);
+        const key = el.dataset.k;
+        gridRows[idx][key] = key === "driver" || key === "compound" ? el.value.toUpperCase() : Number(el.value);
+      });
+    });
+  }
+
+  function currentPayload() {
+    return {
+      circuit: document.getElementById("sbCircuit").value,
+      lap: Number(document.getElementById("sbLap").value),
+      total_laps: Number(document.getElementById("sbTotalLaps").value),
+      ego_driver: document.getElementById("sbEgo").value,
+      track_status: document.getElementById("sbStatus").value,
+      track_temp: Number(document.getElementById("sbTemp").value),
+      weather: document.getElementById("sbWeather").value,
+      target_tyre: document.getElementById("sbTargetTyre").value,
+      rows: gridRows,
+    };
+  }
+
+  async function runSim() {
+    const btn = document.getElementById("btnRunSandbox");
+    btn.disabled = true;
+    btn.textContent = "⏳ Simulating...";
+    try {
+      const p = currentPayload();
+      const resp = await fetch("/api/sandbox/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(p),
+      });
+      const data = await resp.json();
+      document.getElementById("sbCanvasFrame").srcdoc = data.canvas_html;
+      document.getElementById("sbRadioTitle").textContent = `📻 ${data.ego_driver} · ${data.circuit}`;
+      document.getElementById("sbLapPill").textContent = `L${data.lap}/${data.total_laps} · ${p.track_status}`;
+      document.getElementById("sbRejoinSummary").textContent =
+        `10k MC Rejoin: P${data.mc_rejoin.median_pos} · Clean Air ${data.mc_rejoin.p_clean_air_pct}% · Pit Loss ${data.mc_rejoin.median_pit_loss}s`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "⚡ Run 10k MC & Update Radar";
+    }
+  }
+
+  const sbRadio = window.initPitWallRadio({
+    feedId: "sbRadioFeed",
+    formId: "sbRadioForm",
+    inputId: "sbRadioInput",
+    sendBtnId: "sbSendBtn",
+    voiceAutoId: "sbVoiceAuto",
+    playBtnId: "sbPlayVoice",
+    stopBtnId: "sbStopVoice",
+    voiceStatusId: "sbVoiceStatus",
+    clearBtnId: "sbClearBtn",
+    getContext: () => {
+      const p = currentPayload();
+      return {
+        season: 2024,
+        circuit: p.circuit,
+        lap: p.lap,
+        ego_driver: p.ego_driver,
+        weather: p.weather,
+        track_status: p.track_status,
+        track_temp: p.track_temp,
+        custom_rows: p.rows,
+        total_laps_override: p.total_laps,
+      };
+    },
+  });
+
+  document.getElementById("btnRunSandbox").addEventListener("click", runSim);
+  document.getElementById("sbQcPreset").addEventListener("click", () => sbRadio.ask(presetObj.suggested_question));
+  document.getElementById("sbQcCatch").addEventListener("click", () => sbRadio.ask("Can I catch the car ahead or should we box?"));
+
+  renderGridTable();
+  runSim();
+</script>
+{% endblock %}

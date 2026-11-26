@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block head_extra %}
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+{% endblock %}
+
+{% block content %}
+  <div class="cockpit-controls">
+    <div style="font-size:15px;font-weight:900;display:flex;align-items:center;gap:8px;">
+      <span class="accent-bar"></span>
+      <span>🏆 {{ standings.season }} FIA World Championship Standings — Through Round {{ standings.round_number }} ({{ standings.circuit }})</span>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <select id="stSeason">
+        {% for yr in seasons %}
+          <option value="{{ yr }}" {% if yr == standings.season %}selected{% endif %}>{{ yr }} Season</option>
+        {% endfor %}
+      </select>
+      <select id="stCircuit">
+        {% for item in calendar %}
+          <option value="{{ item.circuit }}" {% if item.circuit == standings.circuit %}selected{% endif %}>R{{ item.round }} · {{ item.circuit }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="charts-grid" style="margin-top:0;margin-bottom:16px;">
+    <div class="panel">
+      <div class="section-title"><span class="accent-bar"></span> Top 10 Drivers' Championship (WDC)</div>
+      <div id="wdcChart" style="height:280px;"></div>
+    </div>
+    <div class="panel">
+      <div class="section-title"><span class="accent-bar"></span> Constructors' Championship (WCC)</div>
+      <div id="wccChart" style="height:280px;"></div>
+    </div>
+  </div>
+
+  <div class="charts-grid">
+    <div class="panel">
+      <div class="section-title"><span class="accent-bar"></span> Full WDC Standings</div>
+      <div class="f1-table-wrap">
+        <table class="f1-table">
+          <thead>
+            <tr><th>Pos</th><th>Driver</th><th>Team</th><th>Prior</th><th>Race</th><th>Total</th><th>Gap</th></tr>
+          </thead>
+          <tbody>
+            {% for d in standings.wdc %}
+            <tr>
+              <td style="font-family:monospace;font-weight:900;">P{{ d.position }}</td>
+              <td><span class="team-stripe" style="background:{{ d.color }};"></span><b>{{ d.driver }}</b> <span style="color:#94a3b8;font-size:11px;">{{ d.driver_name }}</span></td>
+              <td style="color:#94a3b8;">{{ d.team }}</td>
+              <td style="font-family:monospace;">{{ "%.0f" | format(d.prior_points) }}</td>
+              <td style="font-family:monospace;color:#34d399;">+{{ "%.0f" | format(d.live_race_points) }}</td>
+              <td style="font-family:monospace;font-weight:900;color:#f8fafc;">{{ "%.0f" | format(d.total_points) }}</td>
+              <td style="font-family:monospace;color:#94a3b8;">{% if d.gap_to_leader == 0 %}LEADER{% else %}-{{ "%.0f" | format(d.gap_to_leader) }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-title"><span class="accent-bar"></span> Full WCC Standings</div>
+      <div class="f1-table-wrap">
+        <table class="f1-table">
+          <thead>
+            <tr><th>Pos</th><th>Constructor</th><th>Prior</th><th>Race</th><th>Total</th><th>Gap</th></tr>
+          </thead>
+          <tbody>
+            {% for t in standings.wcc %}
+            <tr>
+              <td style="font-family:monospace;font-weight:900;">P{{ t.position }}</td>
+              <td><span class="team-stripe" style="background:{{ t.color }};"></span><b>{{ t.team }}</b></td>
+              <td style="font-family:monospace;">{{ "%.0f" | format(t.prior_points) }}</td>
+              <td style="font-family:monospace;color:#34d399;">+{{ "%.0f" | format(t.live_race_points) }}</td>
+              <td style="font-family:monospace;font-weight:900;color:#f8fafc;">{{ "%.0f" | format(t.total_points) }}</td>
+              <td style="font-family:monospace;color:#94a3b8;">{% if t.gap_to_leader == 0 %}LEADER{% else %}-{{ "%.0f" | format(t.gap_to_leader) }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const DATA = {{ standings_json | safe }};
+  function goStandings() {
+    const yr = document.getElementById("stSeason").value;
+    const cir = encodeURIComponent(document.getElementById("stCircuit").value);
+    window.location.href = `/standings/${yr}/${cir}`;
+  }
+  document.getElementById("stSeason").addEventListener("change", goStandings);
+  document.getElementById("stCircuit").addEventListener("change", goStandings);
+
+  if (typeof Plotly !== "undefined") {
+    const baseLayout = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(9,14,24,0.5)",
+      font: { color: "#cbd5e1", size: 11 },
+      margin: { t: 8, r: 24, b: 28, l: 110 },
+      xaxis: { gridcolor: "#1e293b" },
+      yaxis: { autorange: "reversed" },
+    };
+    const top10 = DATA.wdc.slice(0, 10);
+    Plotly.newPlot("wdcChart", [{
+      type: "bar",
+      orientation: "h",
+      y: top10.map((d) => `${d.driver} (P${d.position})`),
+      x: top10.map((d) => d.total_points),
+      marker: { color: top10.map((d) => d.color) },
+      text: top10.map((d) => d.total_points),
+      textposition: "outside",
+    }], baseLayout, { displayModeBar: false, responsive: true });
+
+    Plotly.newPlot("wccChart", [{
+      type: "bar",
+      orientation: "h",
+      y: DATA.wcc.map((t) => t.team),
+      x: DATA.wcc.map((t) => t.total_points),
+      marker: { color: DATA.wcc.map((t) => t.color) },
+      text: DATA.wcc.map((t) => t.total_points),
+      textposition: "outside",
+    }], { ...baseLayout, margin: { t: 8, r: 24, b: 28, l: 130 } }, { displayModeBar: false, responsive: true });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+# Python & Virtual Environments
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# IDEs & OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Environment secrets
+.env
+.env.*
+
+# Local runtime caches & lock files (auto-rebuilt on first run)
+.fastf1/
+data/fastf1_cache/
+data/qdrant_local/
+src/data_ingestion/data/
+*.duckdb.wal
+*.duckdb.tmp
+
+# Local agent / scratch artifacts
+.agents/
+test_counts.py
+test_diff.py
+test_eval.py
+test_isaccurate.py

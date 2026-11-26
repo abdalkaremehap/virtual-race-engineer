@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block head_extra %}
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+{% endblock %}
+
+{% block content %}
+  <!-- Top Race Controls Bar -->
+  <div class="cockpit-controls">
+    <div class="ctrl-group">
+      <label>Season</label>
+      <select id="selSeason">
+        {% for yr in seasons %}
+          <option value="{{ yr }}" {% if yr == bundle.season %}selected{% endif %}>{{ yr }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Grand Prix (24 Circuits)</label>
+      <select id="selCircuit">
+        {% for item in calendar %}
+          <option value="{{ item.circuit }}" {% if item.circuit == bundle.circuit %}selected{% endif %}>R{{ item.round }} · {{ item.circuit }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Session</label>
+      <select id="selSession">
+        {% for stype in session_types %}
+          <option value="{{ stype }}" {% if stype == bundle.session_type %}selected{% endif %}>{{ session_labels.get(stype, stype) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Ego Driver</label>
+      <select id="selDriver">
+        {% for d in bundle.drivers %}
+          <option value="{{ d }}" {% if d == bundle.ego_driver %}selected{% endif %}>{{ d }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Target Pit Tyre</label>
+      <select id="selTargetTyre">
+        {% for c in ["SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET"] %}
+          <option value="{{ c }}" {% if c == bundle.target_tyre %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Weather</label>
+      <select id="selWeather">
+        <option value="">Auto ({{ bundle.inferred_weather }})</option>
+        {% for w in weather_options %}
+          <option value="{{ w }}" {% if w == bundle.weather and request.query_params.get('weather') %}selected{% endif %}>{{ w }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Track Flag</label>
+      <select id="selStatus">
+        <option value="">Auto ({{ bundle.track_status }})</option>
+        <option value="GREEN" {% if request.query_params.get('status') == 'GREEN' %}selected{% endif %}>🟢 GREEN</option>
+        <option value="VSC" {% if request.query_params.get('status') == 'VSC' %}selected{% endif %}>🟡 VSC</option>
+        <option value="SC" {% if request.query_params.get('status') == 'SC' %}selected{% endif %}>🚨 SC</option>
+      </select>
+    </div>
+
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span id="dataSrcBadge" class="pill {% if bundle.is_real_fia %}pill-real{% else %}pill-model{% endif %}">
+        {% if bundle.is_real_fia %}🟢 REAL FIA TELEMETRY{% else %}⚠️ FIA SESSION UNAVAILABLE{% endif %}
+      </span>
+      <button id="btnFetchFia" class="btn btn-sm btn-cyan" type="button">🛰️ Refresh FIA Data</button>
+      <button id="btnShareLink" class="btn btn-sm" type="button">🔗 Copy Link</button>
+    </div>
+  </div>
+
+  {% if not bundle.is_real_fia %}
+  <div class="panel panel-tight" style="margin-bottom:12px;border-left:4px solid #ffb300;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+    <div style="font-size:12.5px;color:#fde68a;">
+      ⚠️ <b>Real FIA data was not found for {{ bundle.season }} {{ bundle.circuit }} ({{ bundle.session_type }})</b> — this Grand Prix or session may not have occurred in {{ bundle.season }}, or the OpenF1/FastF1 API timed out. Showing calibrated physics fallback.
+    </div>
+  </div>
+  {% endif %}
+
+  <div id="raceLoadOverlay" style="display:none;position:fixed;inset:0;z-index:90;background:rgba(6,9,16,0.86);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px;">
+    <div class="panel" style="max-width:440px;width:100%;text-align:center;border-left:4px solid #38bdf8;padding:24px;">
+      <div style="font-size:28px;margin-bottom:8px;">🛰️</div>
+      <div id="raceLoadTitle" style="font-size:16px;font-weight:900;color:#f8fafc;margin-bottom:6px;">Loading Real FIA Telemetry...</div>
+      <div style="font-size:12.5px;color:#94a3b8;line-height:1.5;">
+        Fetching authentic FIA laps, tyre compounds &amp; race control flags (cached permanently in DuckDB after first load).
+      </div>
+    </div>
+  </div>
+
+  <!-- Split-Screen Cockpit: 60 FPS Track Radar (Left) + Live Pit Wall Radio Comms (Right) -->
+  <div class="cockpit-grid">
+    <div>
+      <iframe
+        id="broadcastFrame"
+        class="canvas-iframe"
+        title="60 FPS F1 Broadcast Stage"
+        srcdoc="{{ bundle.canvas_html | e }}"
+      ></iframe>
+    </div>
+
+    <!-- Docked Live F1 Pit Wall Radio Comms Console -->
+    <aside class="radio-console">
+      <div id="radioHeader" class="radio-hdr" style="border-left-color:{{ bundle.kpis.color }};">
+        <div style="min-width:0;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="pulse-dot"></span>
+            <span style="font-size:10.5px;font-weight:900;letter-spacing:1.1px;color:#ff5252;">PIT WALL RADIO COMMS</span>
+          </div>
+          <div id="radioDriverTitle" style="font-size:14px;font-weight:800;color:#f8fafc;margin-top:2px;">
+            📻 {{ bundle.ego_driver }} #{{ bundle.kpis.number }} <span style="color:#94a3b8;font-weight:600;font-size:12px;">· {{ bundle.kpis.team }}</span>
+          </div>
+        </div>
+        <span id="radioLapPill" class="pill pill-real">L{{ bundle.lap }}/{{ bundle.max_lap }} · {{ bundle.track_status }}</span>
+      </div>
+
+      <div class="quick-grid">
+        <button id="qcCatch" class="btn btn-sm" type="button">⚔️ Catch Rival?</button>
+        <button id="qcBox" class="btn btn-sm" type="button">📦 Box → {{ bundle.target_tyre }}?</button>
+        <button id="qcWear" class="btn btn-sm" type="button">🛞 Tyre Wear &amp; Cliff</button>
+        <button id="qcFia" class="btn btn-sm" type="button">⚖️ FIA SC Rules</button>
+      </div>
+
+      <div id="radioFeed" class="radio-feed"></div>
+
+      <div class="voice-bar">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button id="btnPlayVoice" class="btn btn-sm btn-cyan" type="button">🔊 PLAY</button>
+          <button id="btnStopVoice" class="btn btn-sm" type="button">⏹ STOP</button>
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#cbd5e1;cursor:pointer;">
+            <input id="chkVoiceAuto" type="checkbox" checked /> Auto-Read
+          </label>
+        </div>
+        <span id="voiceStatus" style="font-size:10px;color:#94a3b8;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">VOICE READY</span>
+      </div>
+
+      <form id="radioForm" class="ptt-form">
+        <input id="radioInput" type="text" placeholder="Ask Pit Wall (e.g. 'can PER catch me?' or 'box now?')..." autocomplete="off" />
+        <button id="radioSendBtn" class="btn btn-primary" type="submit">🎙️ SEND</button>
+        <button id="btnClearRadio" class="btn btn-sm" type="button" title="Clear Radio Log">🗑️</button>
+      </form>
+    </aside>
+  </div>
+
+  <!-- Live Telemetry KPI Cards -->
+  <section class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">Position &amp; Gap</div>
+      <div id="kpiPos" class="kpi-val" style="color:#38bdf8;">P{{ bundle.kpis.position }}</div>
+      <div id="kpiGap" class="kpi-sub">Gap to Leader: +{{ "%.2f" | format(bundle.kpis.gap_to_leader) }}s</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Active Tyre &amp; Wear</div>
+      <div id="kpiTyre" class="kpi-val">{{ bundle.kpis.compound }} ({{ bundle.kpis.tyre_life }}L)</div>
+      <div id="kpiDeg" class="kpi-sub">L1 Deg: +{{ "%.2f" | format(bundle.kpis.current_deg) }}s/lap</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">5-Lap Wear Projection</div>
+      <div id="kpi5L" class="kpi-val" style="color:#ffb300;">+{{ "%.2f" | format(bundle.kpis.next_5lap_deg) }}s</div>
+      <div id="kpiRem" class="kpi-sub">{{ bundle.kpis.laps_remaining }} laps remaining</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">10k MC Pit Rejoin</div>
+      <div id="kpiRejoin" class="kpi-val" style="color:#00e676;">P{{ bundle.mc_rejoin.median_pos }}</div>
+      <div id="kpiCleanAir" class="kpi-sub">Clean Air: {{ bundle.mc_rejoin.p_clean_air_pct }}% · Loss {{ bundle.mc_rejoin.median_pit_loss }}s</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Stint Net Payback ({{ bundle.target_tyre }})</div>
+      <div id="kpiPayback" class="kpi-val" style="color:{% if bundle.kpis.net_payback_sec >= 0 %}#00e676{% else %}#ff5252{% endif %};">{{ "%+.2f" | format(bundle.kpis.net_payback_sec) }}s</div>
+      <div id="kpiGain" class="kpi-sub">Fresh-tyre gain: +{{ "%.2f" | format(bundle.kpis.recoverable_gain_sec) }}s</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Track Conditions</div>
+      <div id="kpiTemp" class="kpi-val">{{ bundle.track_temp }}°C</div>
+      <div id="kpiWeather" class="kpi-sub">{{ bundle.weather }} · {{ bundle.track_status }}</div>
+    </div>
+  </section>
+
+  <!-- Interactive Plotly.js Analytics Charts -->
+  <section class="charts-grid">
+    <div class="panel">
+      <div class="section-title"><span class="accent-bar"></span> L1 Tensor Tyre Degradation Curves ({{ bundle.track_temp }}°C)</div>
+      <div id="tyreChart" style="height:290px;"></div>
+    </div>
+    <div class="panel">
+      <div class="section-title"><span class="accent-bar"></span> 10,000-Sim Monte Carlo Pit Rejoin Distribution</div>
+      <div id="mcChart" style="height:290px;"></div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const STATE = {{ bundle_json | safe }};
+
+  function navigateToRace() {
+    const yr = document.getElementById("selSeason").value;
+    const cirRaw = document.getElementById("selCircuit").value;
+    const cir = encodeURIComponent(cirRaw);
+    const sess = encodeURIComponent(document.getElementById("selSession").value);
+    const drv = encodeURIComponent(document.getElementById("selDriver").value);
+    const tyre = encodeURIComponent(document.getElementById("selTargetTyre").value);
+    const wx = document.getElementById("selWeather").value;
+    const st = document.getElementById("selStatus").value;
+    const ov = document.getElementById("raceLoadOverlay");
+    const ovTitle = document.getElementById("raceLoadTitle");
+    if (ov && (yr !== String(STATE.season) || cirRaw !== STATE.circuit || document.getElementById("selSession").value !== STATE.session_type)) {
+      if (ovTitle) ovTitle.textContent = `Loading Real FIA Telemetry — ${yr} ${cirRaw}...`;
+      ov.style.display = "flex";
+    }
+    let url = `/race/${yr}/${cir}?session=${sess}&lap=${STATE.lap}&driver=${drv}&target_tyre=${tyre}`;
+    if (wx) url += `&weather=${encodeURIComponent(wx)}`;
+    if (st) url += `&status=${encodeURIComponent(st)}`;
+    window.location.href = url;
+  }
+
+  ["selSeason", "selCircuit", "selSession", "selDriver", "selTargetTyre", "selWeather", "selStatus"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", navigateToRace);
+  });
+
+  // Sync live lap/driver/status directly from the 60 FPS Canvas iframe!
+  window.addEventListener("message", (ev) => {
+    if (!ev.data || ev.data.type !== "f1_canvas_state") return;
+    if (ev.data.lap) STATE.lap = Number(ev.data.lap);
+    if (ev.data.driver) STATE.ego_driver = String(ev.data.driver);
+    if (ev.data.status) STATE.track_status = String(ev.data.status);
+    const pill = document.getElementById("radioLapPill");
+    if (pill) pill.textContent = `L${STATE.lap}/${STATE.max_lap} · ${STATE.track_status}`;
+    const title = document.getElementById("radioDriverTitle");
+    if (title) title.textContent = `📻 ${STATE.ego_driver} · Live Pit Wall`;
+    const qs = new URLSearchParams(window.location.search);
+    qs.set("lap", String(STATE.lap));
+    qs.set("driver", STATE.ego_driver);
+    window.history.replaceState(null, "", `${window.location.pathname}?${qs.toString()}`);
+  });
+
+  // Initialize Zero-Reload Pit Wall Radio & Spoken Voice
+  const radio = window.initPitWallRadio({
+    feedId: "radioFeed",
+    formId: "radioForm",
+    inputId: "radioInput",
+    sendBtnId: "radioSendBtn",
+    voiceAutoId: "chkVoiceAuto",
+    playBtnId: "btnPlayVoice",
+    stopBtnId: "btnStopVoice",
+    voiceStatusId: "voiceStatus",
+    clearBtnId: "btnClearRadio",
+    getContext: () => ({
+      season: STATE.season,
+      circuit: STATE.circuit,
+      session_type: STATE.session_type,
+      lap: STATE.lap,
+      ego_driver: STATE.ego_driver,
+      weather: document.getElementById("selWeather").value || STATE.weather,
+      track_status: document.getElementById("selStatus").value || STATE.track_status,
+      track_temp: STATE.track_temp,
+    }),
+  });
+
+  document.getElementById("qcCatch").addEventListener("click", () =>
+    radio.ask("Can I catch the car ahead or should we box to undercut?")
+  );
+  document.getElementById("qcBox").addEventListener("click", () =>
+    radio.ask(`Should we box for ${STATE.target_tyre}s right now?`)
+  );
+  document.getElementById("qcWear").addEventListener("click", () =>
+    radio.ask(`How much time am I losing per lap on these tyres right now, and should we undercut onto ${STATE.target_tyre}s?`)
+  );
+  document.getElementById("qcFia").addEventListener("click", () =>
+    radio.ask("can i overtake under the sc ?")
+  );
+
+  // Fetch Real FastF1 / OpenF1 Data button
+  const btnFetch = document.getElementById("btnFetchFia");
+  btnFetch.addEventListener("click", async () => {
+    btnFetch.disabled = true;
+    btnFetch.textContent = "⏳ Fetching FIA...";
+    try {
+      const resp = await fetch(
+        `/api/race/${STATE.season}/${encodeURIComponent(STATE.circuit)}/fetch-fia?session_type=${encodeURIComponent(STATE.session_type)}`,
+        { method: "POST" }
+      );
+      const data = await resp.json();
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        btnFetch.textContent = "⚠️ Kept Calibrated";
+        setTimeout(() => { btnFetch.textContent = "🛰️ Fetch Real FIA"; btnFetch.disabled = false; }, 2200);
+      }
+    } catch (e) {
+      btnFetch.textContent = "⚠️ Fetch Failed";
+      setTimeout(() => { btnFetch.textContent = "🛰️ Fetch Real FIA"; btnFetch.disabled = false; }, 2200);
+    }
+  });
+
+  // Copy Shareable Deep-Link URL
+  const btnShare = document.getElementById("btnShareLink");
+  btnShare.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      btnShare.textContent = "✓ Copied!";
+      setTimeout(() => (btnShare.textContent = "🔗 Copy Link"), 1800);
+    } catch (e) {}
+  });
+
+  // Render Plotly.js Charts
+  function renderCharts() {
+    if (typeof Plotly === "undefined") return;
+    const tc = STATE.tyre_curves;
+    const layoutBase = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(9,14,24,0.6)",
+      font: { color: "#cbd5e1", size: 11 },
+      margin: { t: 10, r: 16, b: 38, l: 46 },
+      xaxis: { gridcolor: "#1e293b" },
+      yaxis: { gridcolor: "#1e293b" },
+      legend: { orientation: "h", y: 1.12 },
+    };
+
+    Plotly.newPlot(
+      "tyreChart",
+      [
+        { x: tc.laps, y: tc.curves.SOFT, name: "SOFT", line: { color: "#ff3b30", width: 2.5 } },
+        { x: tc.laps, y: tc.curves.MEDIUM, name: "MEDIUM", line: { color: "#ffd60a", width: 2.5 } },
+        { x: tc.laps, y: tc.curves.HARD, name: "HARD", line: { color: "#e5e7eb", width: 2.5 } },
+      ],
+      {
+        ...layoutBase,
+        xaxis: { ...layoutBase.xaxis, title: "Tyre Age (Laps)" },
+        yaxis: { ...layoutBase.yaxis, title: "Lap Time Loss (s/lap)" },
+      },
+      { displayModeBar: false, responsive: true }
+    );
+
+    const mc = STATE.mc_rejoin;
+    Plotly.newPlot(
+      "mcChart",
+      [
+        {
+          type: "bar",
+          x: mc.positions,
+          y: mc.probabilities,
+          marker: { color: "#38bdf8", line: { color: "#7dd3fc", width: 1 } },
+          text: mc.probabilities.map((p) => `${p.toFixed(1)}%`),
+          textposition: "outside",
+        },
+      ],
+      {
+        ...layoutBase,
+        xaxis: { ...layoutBase.xaxis, title: "Projected Rejoin Position" },
+        yaxis: { ...layoutBase.yaxis, title: "Probability (%)" },
+      },
+      { displayModeBar: false, responsive: true }
+    );
+  }
+  renderCharts();
+</script>
+{% endblock %}

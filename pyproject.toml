@@ -1,0 +1,44 @@
+[project]
+name = "virtual-race-engineer"
+version = "0.1.0"
+description = "Autonomous Multi-Agent Pit Wall & Real-Time Strategic Decision Support System"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    "pydantic>=2.8",
+    "httpx",
+    "loguru",
+    "python-dotenv",
+    "pypdf2>=3.0.1",
+    "sentence-transformers>=6.1.0",
+    "qdrant-client>=1.19.1",
+    "streamlit>=1.67.0",
+    "plotly>=7.1.0",
+    "fastapi>=0.115.0",
+]
+
+[dependency-groups]
+data = [
+    "fastf1",
+    "duckdb",
+    "polars",
+    "scipy",
+]
+ml = [
+    "scikit-learn",
+    "lightgbm",
+    "optuna",
+    "numpy<2.0",
+]
+agents = [
+    "langgraph",
+    "langchain-core",
+    "qdrant-client",
+    "rank-bm25",
+]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
