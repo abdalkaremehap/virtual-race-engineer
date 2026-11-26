@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block head_extra %}
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -95,7 +95,8 @@
   document.getElementById("stSeason").addEventListener("change", goStandings);
   document.getElementById("stCircuit").addEventListener("change", goStandings);
 
-  if (typeof Plotly !== "undefined") {
+  window.addEventListener("DOMContentLoaded", () => {
+    if (typeof Plotly === "undefined") return;
     const baseLayout = {
       paper_bgcolor: "rgba(0,0,0,0)",
       plot_bgcolor: "rgba(9,14,24,0.5)",
@@ -124,6 +125,6 @@
       text: DATA.wcc.map((t) => t.total_points),
       textposition: "outside",
     }], { ...baseLayout, margin: { t: 8, r: 24, b: 28, l: 130 } }, { displayModeBar: false, responsive: true });
-  }
+  });
 </script>
 {% endblock %}
