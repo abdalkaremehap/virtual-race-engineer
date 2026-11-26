@@ -43,7 +43,7 @@
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/virtual-race-engineer.git
+git clone https://github.com/abdalkaremehap/virtual-race-engineer.git
 cd virtual-race-engineer
 
 # 2. Install all dependencies into an isolated .venv
@@ -64,7 +64,7 @@ Open **http://127.0.0.1:7860** in Chrome or Microsoft Edge (turn your sound on f
 **Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/virtual-race-engineer.git
+git clone https://github.com/abdalkaremehap/virtual-race-engineer.git
 cd virtual-race-engineer
 docker compose up --build
 ```
